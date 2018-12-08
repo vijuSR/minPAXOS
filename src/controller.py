@@ -2,6 +2,7 @@ from multiprocessing import Process, Manager
 import os
 import sys
 import logging
+import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir))
 import src
@@ -10,7 +11,7 @@ from src.paxos_node import Node
 logger = logging.getLogger('paxos.controller')
 
 
-def run_paxos(num_paxos_nodes=3):
+def run_paxos(num_paxos_nodes):
     """
     * runs a single paxos-run
     * consensus should be achieved but there may
@@ -48,4 +49,17 @@ def run_paxos(num_paxos_nodes=3):
 
 
 if __name__ == '__main__':
-    run_paxos()
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-npn',
+        '--num_of_paxos_nodes',
+        type=int,
+        default=3,
+        help='number of paxos-nodes to create, DEFAULT[3]'
+    )
+
+    args = parser.parse_args()
+
+    run_paxos(args.num_of_paxos_nodes)
