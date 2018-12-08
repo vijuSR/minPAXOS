@@ -1,4 +1,3 @@
-from multiprocessing import Process, Manager
 import logging
 import os
 import sys
@@ -11,16 +10,15 @@ logger = logging.getLogger('paxos.node_id_{}'.format(os.getpid()))
 class Node(object):
 
     def __init__(self, _id, manager):
-        self.majority = manager.Value('i', None)
         self.id = manager.Value('i', _id)
         self.nodes = manager.dict()
         self.ops = ('+', 2)
         self.data_store = {0: {0: 0}}
 
+        self.majority = manager.Value('i', None)
         self.paxos_proposed_id = manager.Value('i', None)
         self.paxos_promised_id = manager.Value('i', -1)
         self.paxos_proposed_value = manager.Value('i', None)
-        self.paxos_majority = manager.Value('i', None)
         self.paxos_accepted_value = manager.Value('i', None)
         self.paxos_accepted_id = manager.Value('i', -1)
         self.num_nodes = manager.Value('i', None)
@@ -28,16 +26,15 @@ class Node(object):
     def set_majority(self, nodes):
         for k, v in nodes.items():
             self.nodes[k] = v
-        self.majority.value = int((len(self.nodes)) / 2) + 1    # int((len(self.nodes) + 1) / 2) + 1
-        self.num_nodes.value = len(self.nodes)    # + 1
+        self.majority.value = int((len(self.nodes)) / 2) + 1
+        self.num_nodes.value = len(self.nodes)
 
-    def generate_next_paxos_id(self, upto=1):
-        for i in range(upto):
-            if self.paxos_proposed_id.value is None:
-                self.paxos_proposed_id.value = self.id.value
-            else:
-                self.paxos_proposed_id.value = \
-                self.paxos_proposed_id.value + self.num_nodes.value
+    def generate_next_paxos_id(self):
+        if self.paxos_proposed_id.value is None:
+            self.paxos_proposed_id.value = self.id.value
+        else:
+            self.paxos_proposed_id.value = \
+            self.paxos_proposed_id.value + self.num_nodes.value
 
     def prepare(self, proposed_id):
         if proposed_id.value <= self.paxos_promised_id.value:
@@ -53,11 +50,10 @@ class Node(object):
             else:
                 return self.paxos_promised_id.value
 
-    # call the thread with a timeout
     def send_prepares(self):
         responses = []
         self.generate_next_paxos_id()
-        # self.paxos_promised_id.value = self.paxos_proposed_id.value
+
         for _id, node in self.nodes.items():
             logger.debug('node {}: sending PREPARE(id {}) to node id {}'.format(
                 self.id.value, self.paxos_proposed_id.value, node.id.value
@@ -81,8 +77,6 @@ class Node(object):
         else:
             self.paxos_accepted_id.value = paxos_proposed_id.value
             self.paxos_accepted_value.value = paxos_proposed_value.value
-
-            # self.send_to_learners() ??
 
             return self.paxos_accepted_id.value, self.paxos_accepted_value.value
 
@@ -116,7 +110,6 @@ class Node(object):
         ))
 
         if self.check_majority(accept_request_responses):
-            # logger consensus reached
             logger.info('NODE {} , PROCESS-ID {}: CONSENSUS IS REACHED ON VALUE: {}'.format(
                 self.id.value, os.getpid(), self.paxos_accepted_value.value
             ))
@@ -128,9 +121,6 @@ class Node(object):
             logger.info('node-id {}: current state of data-store: {}'.format(self.id.value, self.data_store))
         else:
             self.send_prepares()
-
-    def send_to_learners(self):
-        pass
 
     def check_majority(self, responses):
 
