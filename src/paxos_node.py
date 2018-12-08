@@ -8,8 +8,20 @@ logger = logging.getLogger('paxos.node_id_{}'.format(os.getpid()))
 
 
 class Node(object):
+    """
+    Node class: It will represent a single paxos node
+    upon instantiation. Contains all the properties and
+    methods required by a node in order to participate in
+    the PAXOS-run.
+    """
 
     def __init__(self, _id, manager):
+        """
+        :param _id: id of this node
+        :param manager: a manager object returned by Manager()
+        that controls a server process which holds Python objects
+        and allows other processes to manipulate them using proxies.
+        """
         self.id = manager.Value('i', _id)
         self.nodes = manager.dict()
         self.ops = ('+', 2)
@@ -24,19 +36,31 @@ class Node(object):
         self.num_nodes = manager.Value('i', None)
 
     def set_majority(self, nodes):
+        """
+        sets the paxos-nodes and the paxos-majority
+        :param nodes: dict of id->node of all the paxos-nodes
+        """
         for k, v in nodes.items():
             self.nodes[k] = v
         self.majority.value = int((len(self.nodes)) / 2) + 1
         self.num_nodes.value = len(self.nodes)
 
     def generate_next_paxos_id(self):
+        """
+        generates the next unique paxos-id for a node
+        """
         if self.paxos_proposed_id.value is None:
             self.paxos_proposed_id.value = self.id.value
         else:
             self.paxos_proposed_id.value = \
-            self.paxos_proposed_id.value + self.num_nodes.value
+                self.paxos_proposed_id.value + self.num_nodes.value
 
     def prepare(self, proposed_id):
+        """
+        receives the prepare-ID message by other paxos-nodes
+        :param proposed_id: paxos-id proposed by another node
+        :return: returns values/None, see code
+        """
         if proposed_id.value <= self.paxos_promised_id.value:
             return None
         else:
@@ -51,6 +75,12 @@ class Node(object):
                 return self.paxos_promised_id.value
 
     def send_prepares(self):
+        """
+        Sends the prepare-ID message to every other
+        paxos-node available. If in-case the majority
+        is not achieved for proposed-ID, retry is done
+        using higher ID.
+        """
         responses = []
         self.generate_next_paxos_id()
 
@@ -72,6 +102,9 @@ class Node(object):
             self.send_prepares()
 
     def accept_request(self, paxos_proposed_id, paxos_proposed_value):
+        """
+        receives the accept-request message from other paxos-nodes
+        """
         if paxos_proposed_id.value < self.paxos_promised_id.value:
             return None
         else:
@@ -81,6 +114,12 @@ class Node(object):
             return self.paxos_accepted_id.value, self.paxos_accepted_value.value
 
     def send_accept_requests(self, responses):
+        """
+        Sends the accept-request message to other paxos-nodes, and if the
+        majority is not achieved for an accept-request, prepare-ID message
+        is initiated with higher ID.
+        :param responses: list of prepare-ID responses from other paxos-nodes
+        """
         accept_request_responses = []
 
         temp_id = -1
@@ -123,6 +162,11 @@ class Node(object):
             self.send_prepares()
 
     def check_majority(self, responses):
+        """
+        :param responses: list of prepare-ID/accept-request
+        responses from other paxos-nodes
+        :return: True if majority, otherwise False
+        """
 
         response_count = len(responses) - responses.count(None)
 
