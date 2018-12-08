@@ -29,8 +29,8 @@ class Node(object):
     def set_majority(self, nodes):
         for k, v in nodes.items():
             self.nodes[k] = v
-        self.majority.value = int((len(self.nodes) + 1) / 2) + 1
-        self.num_nodes.value = len(self.nodes)
+        self.majority.value = int((len(self.nodes)) / 2) + 1    # int((len(self.nodes) + 1) / 2) + 1
+        self.num_nodes.value = len(self.nodes)    # + 1
 
     def generate_next_paxos_id(self, upto=1):
         for i in range(upto):
@@ -47,11 +47,10 @@ class Node(object):
             self.paxos_promised_id.value = proposed_id.value
 
             if self.paxos_accepted_id.value is not None and \
-            self.paxos_accepted_id.value != -1:
-                return self.paxos_promised_id.value, 
-                self.paxos_accepted_id.value, 
-                self.paxos_accepted_value.value
-
+                            self.paxos_accepted_id.value != -1:
+                return self.paxos_promised_id.value, \
+                       self.paxos_accepted_id.value, \
+                       self.paxos_accepted_value.value
             else:
                 return self.paxos_promised_id.value
 
@@ -59,6 +58,7 @@ class Node(object):
     def send_prepares(self):
         responses = []
         self.generate_next_paxos_id()
+        # self.paxos_promised_id.value = self.paxos_proposed_id.value
         for _id, node in self.nodes.items():
             logger.debug('node {}: sending PREPARE(id {}) to node id {}'.format(
                 self.id.value, self.paxos_proposed_id.value, node.id.value
@@ -72,10 +72,12 @@ class Node(object):
             logger.debug('''node {}: majority for proposed-id {} achieved, sending accept-requests'''.format(
                 self.id.value, self.paxos_proposed_id.value
             ))
-            self.send_accept_requests()
+            self.send_accept_requests(responses)
+        else:
+            self.send_prepares()
 
     def accept_request(self, paxos_proposed_id, paxos_proposed_value):
-        if paxos_proposed_id.value <= self.paxos_accepted_id.value:
+        if paxos_proposed_id.value < self.paxos_promised_id.value:
             return None
         else:
             self.paxos_accepted_id.value = paxos_proposed_id.value
@@ -85,12 +87,17 @@ class Node(object):
 
             return self.paxos_accepted_id.value, self.paxos_accepted_value.value
 
-    def send_accept_requests(self):
+    def send_accept_requests(self, responses):
         accept_request_responses = []
-        # paxos value will be the update-version-number
-        if self.paxos_accepted_value.value:
-            self.paxos_proposed_value.value = self.paxos_accepted_value.value
-        else:
+
+        temp_id = -1
+        for response in responses:
+            if type(response) is tuple:
+                if response[1] > temp_id:
+                    self.paxos_proposed_value.value = response[2]
+                    temp_id = response[1]
+
+        if not self.paxos_proposed_value.value:
             self.paxos_proposed_value.value = sorted(self.data_store.keys())[-1] + 1
 
         for _id, node in self.nodes.items():
@@ -120,13 +127,15 @@ class Node(object):
             }
 
             logger.info('node-id {}: current state of data-store: {}'.format(self.id.value, self.data_store))
+        else:
+            self.send_prepares()
 
     def send_to_learners(self):
         pass
 
     def check_majority(self, responses):
 
-        response_count = len(responses) - responses.count(None) + 1
+        response_count = len(responses) - responses.count(None)
 
         if response_count >= self.majority.value:
             return True
@@ -136,25 +145,22 @@ class Node(object):
 
 if __name__ == '__main__':
 
-    num_nodes = 3
+    num_paxos_nodes = 3
     with Manager() as manager:
 
         node_map = {}
 
         processes = []
 
-        for i in range(1, num_nodes + 1):
+        for i in range(1, num_paxos_nodes + 1):
             node_map[i] = Node(_id=i)
 
-        for i in range(1, num_nodes + 1):
-            node_map[i].set_majority({j: node for j, node in node_map.items() if i != j})
+        for i in range(1, num_paxos_nodes + 1):
+            node_map[i].set_majority({j: node for j, node in node_map.items()})
 
-        for i in range(1, num_nodes + 1):
+        for i in range(1, num_paxos_nodes + 1):
             processes.append(Process(target=node_map[i].send_prepares, args=()))
             processes[-1].start()
 
-        # for i in range(1, 4):
-        #     processes[i].start()
-
-        for i in range(num_nodes):
+        for i in range(num_paxos_nodes):
             processes[i].join()
