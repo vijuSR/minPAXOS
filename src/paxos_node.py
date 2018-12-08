@@ -1,4 +1,3 @@
-from multiprocessing import Process, Manager
 import logging
 import os
 import sys
@@ -9,37 +8,59 @@ logger = logging.getLogger('paxos.node_id_{}'.format(os.getpid()))
 
 
 class Node(object):
+    """
+    Node class: It will represent a single paxos node
+    upon instantiation. Contains all the properties and
+    methods required by a node in order to participate in
+    the PAXOS-run.
+    """
 
-    def __init__(self, _id):
-        self.majority = manager.Value('i', None)
+    def __init__(self, _id, manager):
+        """
+        :param _id: id of this node
+        :param manager: a manager object returned by Manager()
+        that controls a server process which holds Python objects
+        and allows other processes to manipulate them using proxies.
+        """
         self.id = manager.Value('i', _id)
         self.nodes = manager.dict()
         self.ops = ('+', 2)
         self.data_store = {0: {0: 0}}
 
+        self.majority = manager.Value('i', None)
         self.paxos_proposed_id = manager.Value('i', None)
         self.paxos_promised_id = manager.Value('i', -1)
         self.paxos_proposed_value = manager.Value('i', None)
-        self.paxos_majority = manager.Value('i', None)
         self.paxos_accepted_value = manager.Value('i', None)
         self.paxos_accepted_id = manager.Value('i', -1)
         self.num_nodes = manager.Value('i', None)
 
     def set_majority(self, nodes):
+        """
+        sets the paxos-nodes and the paxos-majority
+        :param nodes: dict of id->node of all the paxos-nodes
+        """
         for k, v in nodes.items():
             self.nodes[k] = v
-        self.majority.value = int((len(self.nodes)) / 2) + 1    # int((len(self.nodes) + 1) / 2) + 1
-        self.num_nodes.value = len(self.nodes)    # + 1
+        self.majority.value = int((len(self.nodes)) / 2) + 1
+        self.num_nodes.value = len(self.nodes)
 
-    def generate_next_paxos_id(self, upto=1):
-        for i in range(upto):
-            if self.paxos_proposed_id.value is None:
-                self.paxos_proposed_id.value = self.id.value
-            else:
-                self.paxos_proposed_id.value = \
+    def generate_next_paxos_id(self):
+        """
+        generates the next unique paxos-id for a node
+        """
+        if self.paxos_proposed_id.value is None:
+            self.paxos_proposed_id.value = self.id.value
+        else:
+            self.paxos_proposed_id.value = \
                 self.paxos_proposed_id.value + self.num_nodes.value
 
     def prepare(self, proposed_id):
+        """
+        receives the prepare-ID message by other paxos-nodes
+        :param proposed_id: paxos-id proposed by another node
+        :return: returns values/None, see code
+        """
         if proposed_id.value <= self.paxos_promised_id.value:
             return None
         else:
@@ -53,11 +74,16 @@ class Node(object):
             else:
                 return self.paxos_promised_id.value
 
-    # call the thread with a timeout
     def send_prepares(self):
+        """
+        Sends the prepare-ID message to every other
+        paxos-node available. If in-case the majority
+        is not achieved for proposed-ID, retry is done
+        using higher ID.
+        """
         responses = []
         self.generate_next_paxos_id()
-        # self.paxos_promised_id.value = self.paxos_proposed_id.value
+
         for _id, node in self.nodes.items():
             logger.debug('node {}: sending PREPARE(id {}) to node id {}'.format(
                 self.id.value, self.paxos_proposed_id.value, node.id.value
@@ -76,17 +102,24 @@ class Node(object):
             self.send_prepares()
 
     def accept_request(self, paxos_proposed_id, paxos_proposed_value):
+        """
+        receives the accept-request message from other paxos-nodes
+        """
         if paxos_proposed_id.value < self.paxos_promised_id.value:
             return None
         else:
             self.paxos_accepted_id.value = paxos_proposed_id.value
             self.paxos_accepted_value.value = paxos_proposed_value.value
 
-            # self.send_to_learners() ??
-
             return self.paxos_accepted_id.value, self.paxos_accepted_value.value
 
     def send_accept_requests(self, responses):
+        """
+        Sends the accept-request message to other paxos-nodes, and if the
+        majority is not achieved for an accept-request, prepare-ID message
+        is initiated with higher ID.
+        :param responses: list of prepare-ID responses from other paxos-nodes
+        """
         accept_request_responses = []
 
         temp_id = -1
@@ -116,7 +149,6 @@ class Node(object):
         ))
 
         if self.check_majority(accept_request_responses):
-            # logger consensus reached
             logger.info('NODE {} , PROCESS-ID {}: CONSENSUS IS REACHED ON VALUE: {}'.format(
                 self.id.value, os.getpid(), self.paxos_accepted_value.value
             ))
@@ -129,10 +161,12 @@ class Node(object):
         else:
             self.send_prepares()
 
-    def send_to_learners(self):
-        pass
-
     def check_majority(self, responses):
+        """
+        :param responses: list of prepare-ID/accept-request
+        responses from other paxos-nodes
+        :return: True if majority, otherwise False
+        """
 
         response_count = len(responses) - responses.count(None)
 
@@ -140,26 +174,3 @@ class Node(object):
             return True
         else:
             return False
-
-
-if __name__ == '__main__':
-
-    num_paxos_nodes = 3
-    with Manager() as manager:
-
-        node_map = {}
-
-        processes = []
-
-        for i in range(1, num_paxos_nodes + 1):
-            node_map[i] = Node(_id=i)
-
-        for i in range(1, num_paxos_nodes + 1):
-            node_map[i].set_majority({j: node for j, node in node_map.items()})
-
-        for i in range(1, num_paxos_nodes + 1):
-            processes.append(Process(target=node_map[i].send_prepares, args=()))
-            processes[-1].start()
-
-        for i in range(num_paxos_nodes):
-            processes[i].join()
