@@ -10,7 +10,7 @@ logger = logging.getLogger('paxos.node_id_{}'.format(os.getpid()))
 
 class Node(object):
 
-    def __init__(self, _id):
+    def __init__(self, _id, manager):
         self.majority = manager.Value('i', None)
         self.id = manager.Value('i', _id)
         self.nodes = manager.dict()
@@ -140,26 +140,3 @@ class Node(object):
             return True
         else:
             return False
-
-
-if __name__ == '__main__':
-
-    num_paxos_nodes = 3
-    with Manager() as manager:
-
-        node_map = {}
-
-        processes = []
-
-        for i in range(1, num_paxos_nodes + 1):
-            node_map[i] = Node(_id=i)
-
-        for i in range(1, num_paxos_nodes + 1):
-            node_map[i].set_majority({j: node for j, node in node_map.items()})
-
-        for i in range(1, num_paxos_nodes + 1):
-            processes.append(Process(target=node_map[i].send_prepares, args=()))
-            processes[-1].start()
-
-        for i in range(num_paxos_nodes):
-            processes[i].join()
